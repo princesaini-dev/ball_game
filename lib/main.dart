@@ -4,7 +4,6 @@ import 'ball_game.dart';
 
 void main() {
   final game = BallGame();
-
   runApp(
     GameWidget(
       game: game,
