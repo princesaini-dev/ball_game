@@ -65,10 +65,6 @@ class _GameControlsState extends State<GameControls> {
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.8),
                   shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.blue.withOpacity(0.5),
-                    width: 2,
-                  ),
                 ),
                 child: const Icon(
                   Icons.keyboard_arrow_up,
