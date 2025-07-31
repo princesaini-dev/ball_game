@@ -1,5 +1,7 @@
 import 'package:flame/components.dart';
 import 'package:flame/game.dart';
+import 'package:flame_svg/svg.dart';
+import 'package:flame_svg/svg_component.dart';
 import 'package:flutter/painting.dart';
 
 import 'CurveTrackComponent.dart';
@@ -28,17 +30,26 @@ class BallGame extends FlameGame {
   double curveHeight = 40; // amplitude of wave
   double curveFrequency = 2; // wave frequency
   double baseY = 400; // base y for track
-  final double trackWidth = 5000;
+  final double trackWidth = 1000;
   final double trackHeight = 20; // Reduced height of the elevated track
-  final double ballHoverHeight = 13; // Increased height above track surface (was 5)
+  final double ballHoverHeight =
+      13; // Increased height above track surface (was 5)
 
   BallGame();
 
   @override
-  Color backgroundColor() => const Color(0xFF87CEEB); // Sky blue
-
-  @override
   Future<void> onLoad() async {
+    final bgSvg = await Svg.load('images/background.svg');
+
+    add(
+      SvgComponent(
+        svg: bgSvg,
+        size: size, // full canvas size
+        position: Vector2.zero(), // top-left
+        priority: -1,
+      ),
+    );
+
     world = World();
     cameraComponent = CameraComponent(world: world);
     addAll([cameraComponent, world]);
@@ -51,10 +62,7 @@ class BallGame extends FlameGame {
     world.add(scrollingBackground);
 
     // Add curve track to world
-    track = CurveTrackComponent(
-      width: trackWidth,
-      baseY: baseY,
-    );
+    track = CurveTrackComponent(width: trackWidth, baseY: baseY);
     world.add(track);
 
     // Add ball to world - positioned slightly above the elevated track
@@ -64,7 +72,10 @@ class BallGame extends FlameGame {
     );
 
     // Position ball above the elevated track
-    ball.position = Vector2(100, track.getTrackTopY(100) - ball.radius - ballHoverHeight);
+    ball.position = Vector2(
+      100,
+      track.getTrackTopY(100) - ball.radius - ballHoverHeight,
+    );
 
     world.add(ball);
 

@@ -11,6 +11,7 @@ void main() {
         'controls': (context, _) => GameControls(game),
       },
       initialActiveOverlays: const ['controls'],
+      backgroundBuilder: null,
     ),
   );
 }

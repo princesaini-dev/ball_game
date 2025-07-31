@@ -5,9 +5,9 @@ import 'dart:math';
 class CurveTrackComponent extends Component {
   final double width;
   final double baseY;
-  final double trackHeight = 20; // Reduced height of the elevated track
-  final double curveAmplitude = 30; // Height variation of the curve
-  final double curveFrequency = 0.005; // How often the curve repeats
+  final double trackHeight = 30; // Reduced height of the elevated track
+  final double curveAmplitude = 70; // Height variation of the curve
+  final double curveFrequency = 0.015; // How often the curve repeats
 
   CurveTrackComponent({
     required this.width,
@@ -27,17 +27,17 @@ class CurveTrackComponent extends Component {
   @override
   void render(Canvas canvas) {
     final trackPaint = Paint()
-      ..color = const Color(0xFF666666)
+      ..color = const Color(0x00000000)
       ..style = PaintingStyle.fill;
 
     final supportPaint = Paint()
-      ..color = const Color(0xFF444444)
-      ..strokeWidth = 3
+      ..color = const Color(0x00000000)
+      ..strokeWidth = 0
       ..style = PaintingStyle.stroke;
 
     final edgePaint = Paint()
       ..color = const Color(0xFF333333)
-      ..strokeWidth = 2
+      ..strokeWidth = 4
       ..style = PaintingStyle.stroke;
 
     // Draw the curved track surface using a path
@@ -62,7 +62,7 @@ class CurveTrackComponent extends Component {
       final trackTopY = getTrackTopY(x);
       canvas.drawLine(
         Offset(x, trackTopY),
-        Offset(x, baseY + 20), // Extend below base for visual effect
+        Offset(x, baseY + 40), // Extend below base for visual effect
         supportPaint,
       );
     }
@@ -88,8 +88,8 @@ class CurveTrackComponent extends Component {
 
     // Draw track ties (cross beams) every 50 pixels - following the curve
     final tiePaint = Paint()
-      ..color = const Color(0xFF8B4513)
-      ..strokeWidth = 4
+      ..color = const Color(0xFF030303)
+      ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
 
     for (double x = 25; x <= width; x += 50) {
