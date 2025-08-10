@@ -11,10 +11,11 @@ import 'dart:async';
 
 import 'CurveTrackComponent.dart';
 import 'ScrollingBackgroundComponent.dart';
+import 'BallComponent.dart';
 
 class BallGame extends FlameGame with HasKeyboardHandlerComponents {
-  late CircleComponent ball;
-  late CurveTrackComponent track;
+  late BallComponent ball;
+  late CustomTrackComponent track;
   late ScrollingBackgroundComponent scrollingBackground;
   final double maxSpeed = 350;
   double velocity = 0;
@@ -69,6 +70,8 @@ class BallGame extends FlameGame with HasKeyboardHandlerComponents {
     KeyEvent event,
     Set<LogicalKeyboardKey> keysPressed,
   ) {
+    final result = super.onKeyEvent(event, keysPressed);
+
     movingLeft = keysPressed.contains(LogicalKeyboardKey.arrowLeft);
     movingRight = keysPressed.contains(LogicalKeyboardKey.arrowRight);
     // Bounce only on single press
@@ -133,25 +136,29 @@ class BallGame extends FlameGame with HasKeyboardHandlerComponents {
     world.add(scrollingBackground);
 
     // Add FIXED curve track (stays in world coordinates)
-    track = CurveTrackComponent(width: trackWidth, baseY: baseY - 100);
+    track = CustomTrackComponent(width: trackWidth, baseY: baseY - 100);
+
+    // ACTIVATE: Load a platformer pattern with gaps and height differences
+    track.loadTrackPattern('platformer'); // Try this for platform jumping!
+    // track.loadTrackPattern('stairs_up');        // Or this for stair climbing
+    // track.loadTrackPattern('scattered_platforms'); // Or this for scattered platforms
+    // track.toggleControlPointsVisibility();      // Uncomment to see control points
+
     world.add(track);
 
     // Create optimized ball component
-    ball = CircleComponent(
-      radius: 15,
-      paint: Paint()..color = const Color(0xFFF80404),
-    );
+    ball = BallComponent();
 
     // FIXED: Position ball at left edge of track (x=50 instead of x=100)
     final initialX = screenWidth / 2; // Start closer to left edge
     final initialTrackY = track.getTrackTopY(initialX);
     ball.position = Vector2(
       initialX,
-      initialTrackY - ball.radius - ballHoverHeight,
+      initialTrackY ?? 0 - ball.radius - ballHoverHeight,
     );
 
     // Initialize previous track position for anti-vibration
-    _previousTrackY = initialTrackY;
+    _previousTrackY = initialTrackY ?? 0;
 
     world.add(ball);
   }
@@ -174,6 +181,10 @@ class BallGame extends FlameGame with HasKeyboardHandlerComponents {
     if (isOnGround) {
       verticalVelocity = -jumpPower;
       isOnGround = false;
+
+      // Add excited expression when jumping
+      ball.setExpression(BallExpression.excited);
+      ball.addSpinEffect();
     }
   }
 
@@ -181,6 +192,10 @@ class BallGame extends FlameGame with HasKeyboardHandlerComponents {
     if (isOnGround) {
       verticalVelocity = -doubleJumpPower;
       isOnGround = false;
+
+      // Add surprised expression for double jump
+      ball.setExpression(BallExpression.surprised);
+      ball.addSpinEffect();
     }
   }
 
@@ -189,18 +204,25 @@ class BallGame extends FlameGame with HasKeyboardHandlerComponents {
     verticalVelocity = -bouncePower;
     isOnGround = false;
 
+    // Add visual effects to the happy face ball
+    ball.addBounceEffect();
+    ball.addSpinEffect();
+
     if (direction == 0) {
       velocity += (velocity > 0 ? 50 : -50);
     }
   }
 
-  // FIXED: Anti-vibration track height calculation
-  double calculateTrackTopY() {
-    final rawTrackY = track.getTrackTopY(ball.x);
+  // FIXED: Anti-vibration track height calculation with gap support
+  double? calculateTrackTopY() {
+    final trackY = track.getTrackTopY(ball.x);
+
+    // If there's no track at this position (gap), return null
+    if (trackY == null) return null;
 
     // Apply damping to prevent sudden height changes (anti-vibration)
     final dampedTrackY =
-        _previousTrackY + (rawTrackY - _previousTrackY) * _vibrationDamping;
+        _previousTrackY + (trackY - _previousTrackY) * _vibrationDamping;
 
     _previousTrackY = dampedTrackY;
 
@@ -217,7 +239,7 @@ class BallGame extends FlameGame with HasKeyboardHandlerComponents {
     } else if (movingRight) {
       moveRight();
     } else {
-      stop();
+      Future.delayed(Duration(seconds: 3), () => stop());
     }
 
     // PERFORMANCE: Frame rate control
@@ -247,10 +269,24 @@ class BallGame extends FlameGame with HasKeyboardHandlerComponents {
   }
 
   void _updatePhysics(double dt) {
-    // Smooth horizontal movement
+    // Smooth horizontal movement with edge detection
     if (direction != 0) {
       velocity += direction * acceleration * dt;
       velocity = velocity.clamp(-maxSpeed, maxSpeed);
+
+      // Check for platform edges before moving
+      final newX = ball.x + velocity * dt;
+      if (_shouldStopAtEdge(newX, velocity > 0)) {
+        velocity = 0; // Stop the ball at the edge
+        ball.setExpression(
+          BallExpression.surprised,
+        ); // Show that ball can't proceed
+      } else if (newX >= ball.radius && newX <= trackWidth - ball.radius) {
+        ball.x = newX;
+      } else {
+        ball.x = newX.clamp(ball.radius, trackWidth - ball.radius);
+        velocity = 0;
+      }
     } else {
       final frictionForce = friction * dt;
       if (velocity > frictionForce) {
@@ -262,34 +298,128 @@ class BallGame extends FlameGame with HasKeyboardHandlerComponents {
       }
     }
 
-    // Move ball horizontally with bounds checking
-    final newX = ball.x + velocity * dt;
-    if (newX >= ball.radius && newX <= trackWidth - ball.radius) {
-      ball.x = newX;
-    } else {
-      ball.x = newX.clamp(ball.radius, trackWidth - ball.radius);
-      velocity = 0;
-    }
+    // Update ball rotation based on horizontal movement
+    ball.updateRotation(velocity, dt);
 
     // Smooth vertical physics with anti-vibration
     verticalVelocity += gravity * dt;
     ball.y += verticalVelocity * dt;
 
-    // FIXED: Smooth ground collision detection with tolerance
-    final trackTopY = calculateTrackTopY() - ball.radius;
+    // Handle gaps and platform collision detection
+    final trackTopY = calculateTrackTopY();
 
-    if (ball.y >= trackTopY - _groundTolerance) {
-      // Smooth landing instead of hard snap
-      ball.y = trackTopY;
-
-      // Only stop vertical velocity if moving downward
-      if (verticalVelocity > 0) {
-        verticalVelocity = 0;
-      }
-
-      isOnGround = true;
-    } else {
+    if (trackTopY == null) {
+      // Ball is over a gap - let it fall with gravity
       isOnGround = false;
+      ball.setExpression(
+        BallExpression.surprised,
+      ); // Show surprise when falling
+    } else {
+      // There's a platform at this position
+      final platformY = trackTopY - ball.radius;
+
+      if (ball.y >= platformY - _groundTolerance) {
+        // Ball has landed on platform
+        ball.y = platformY;
+
+        // Only stop vertical velocity if moving downward
+        if (verticalVelocity > 0) {
+          verticalVelocity = 0;
+          ball.setExpression(BallExpression.happy); // Happy when landed safely
+        }
+
+        isOnGround = true;
+      } else {
+        isOnGround = false;
+      }
+    }
+
+    // Prevent ball from falling below screen (respawn or game over)
+    if (ball.y > baseY + 300) {
+      _respawnBall();
+    }
+  }
+
+  // Check if ball should stop at platform edge due to height difference
+  bool _shouldStopAtEdge(double newX, bool movingRight) {
+    if (!isOnGround) return false; // Only check edges when on ground
+
+    // Get current platform height
+    final currentTrackY = track.getTrackTopY(ball.x);
+    if (currentTrackY == null) return false;
+
+    // Check next position
+    final lookAheadDistance = ball.radius + 5; // Small look-ahead distance
+    final checkX =
+        movingRight ? newX + lookAheadDistance : newX - lookAheadDistance;
+    final nextTrackY = track.getTrackTopY(checkX);
+
+    // If there's no track ahead (gap), let normal gap handling take care of it
+    if (nextTrackY == null) return false;
+
+    // Check if next platform is significantly higher
+    final heightDifference = currentTrackY - nextTrackY;
+    final maxStepHeight =
+        30; // Maximum height the ball can "step up" automatically
+
+    // Stop if next platform is too high to step up to
+    if (heightDifference > maxStepHeight) {
+      return true;
+    }
+
+    // Also check for platform edge (end of current segment)
+    final currentSegment = track.findSegmentAtX(ball.x);
+    if (currentSegment != null) {
+      final edgeBuffer = ball.radius + 2;
+
+      if (movingRight && newX + edgeBuffer >= currentSegment.endX) {
+        // At right edge of current segment
+        final nextSegment = track.findSegmentAtX(currentSegment.endX + 10);
+        if (nextSegment != null && !nextSegment.isConnectedToPrevious) {
+          // Next segment exists but is disconnected (gap or height difference)
+          final currentHeight = currentSegment.controlPoints.last.y;
+          final nextHeight = nextSegment.controlPoints.first.y;
+
+          // Stop if there's a significant height difference up
+          if (currentHeight - nextHeight > maxStepHeight) {
+            return true;
+          }
+        }
+      } else if (!movingRight && newX - edgeBuffer <= currentSegment.startX) {
+        // At left edge of current segment
+        // Find previous segment
+        TrackSegment? prevSegment;
+        for (final segment in track.trackSegments) {
+          if (segment.endX <= currentSegment.startX - 5) {
+            prevSegment = segment;
+          }
+        }
+
+        if (prevSegment != null) {
+          final currentHeight = currentSegment.controlPoints.first.y;
+          final prevHeight = prevSegment.controlPoints.last.y;
+
+          // Stop if there's a significant height difference up
+          if (currentHeight - prevHeight > maxStepHeight) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  // Respawn ball at the beginning or last safe platform
+  void _respawnBall() {
+    ball.x = 50; // Reset to start position
+    final respawnTrackY = track.getTrackTopY(ball.x);
+    if (respawnTrackY != null) {
+      ball.y = respawnTrackY - ball.radius - ballHoverHeight;
+      verticalVelocity = 0;
+      velocity = 0;
+      isOnGround = true;
+      ball.setExpression(BallExpression.happy);
     }
   }
 
