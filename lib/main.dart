@@ -1,36 +1,116 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flame/game.dart';
-import 'ball_game.dart';
+import 'ball_game_enhanced.dart';
+import 'ui/game_ui_overlay.dart';
+import 'ui/start_screen.dart';
+import 'ui/game_over_dialog.dart';
+import 'config/game_state.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Ball Game',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: GameScreen(),
+      title: 'Neon Ball Game',
+      theme: ThemeData(primarySwatch: Colors.blue, brightness: Brightness.dark),
+      home: const GameScreen(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
 class GameScreen extends StatefulWidget {
+  const GameScreen({super.key});
+
   @override
-  _GameScreenState createState() => _GameScreenState();
+  State<GameScreen> createState() => _GameScreenState();
 }
 
 class _GameScreenState extends State<GameScreen> {
   late BallGame game;
+  GameState _currentState = GameState.start;
 
   @override
   void initState() {
     super.initState();
     game = BallGame();
+
+    // Listen to game state changes
+    game.onGameStateChanged = (newState) {
+      setState(() {
+        _currentState = newState;
+      });
+
+      // Show game over dialog
+      if (newState == GameState.gameOver) {
+        _showGameOverDialog();
+      }
+    };
+  }
+
+  void _showGameOverDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => GameOverDialog(
+            finalScore: game.score,
+            finalDistance: game.distance,
+            onRestart: () {
+              Navigator.of(context).pop();
+              game.restartGame();
+            },
+          ),
+    );
+  }
+
+  void _handlePause() {
+    if (_currentState == GameState.playing) {
+      game.pauseGame();
+      _showPauseDialog();
+    }
+  }
+
+  void _showPauseDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: Colors.black87,
+            title: const Text(
+              'PAUSED',
+              style: TextStyle(color: Colors.white, fontSize: 32),
+              textAlign: TextAlign.center,
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    game.resumeGame();
+                  },
+                  child: const Text('RESUME'),
+                ),
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    game.restartGame();
+                  },
+                  child: const Text('RESTART'),
+                ),
+              ],
+            ),
+          ),
+    );
   }
 
   @override
@@ -38,104 +118,62 @@ class _GameScreenState extends State<GameScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          GameWidget<BallGame>.controlled(
-            gameFactory: () => game,
-          ),
-          // Control buttons overlay
-          //_buildControlButtons(),
+          // Game widget
+          GameWidget<BallGame>.controlled(gameFactory: () => game),
+
+          // Start screen overlay
+          if (_currentState == GameState.start)
+            StartScreen(
+              onStart: () {
+                game.startGame();
+              },
+            ),
+
+          // Game UI overlay (only show when playing)
+          if (_currentState == GameState.playing)
+            ValueListenableBuilder<int>(
+              valueListenable: _ScoreNotifier(game),
+              builder: (context, _, __) {
+                return GameUIOverlay(
+                  score: game.score,
+                  distance: game.distance,
+                  combo: game.combo,
+                  onPause: _handlePause,
+                  // Only show debug toggle in debug mode
+                  onDebugToggle:
+                      kDebugMode
+                          ? () {
+                            setState(() {
+                              game.collisionEnabled = !game.collisionEnabled;
+                            });
+                          }
+                          : null,
+                  collisionEnabled: game.collisionEnabled,
+                );
+              },
+            ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildControlButtons() {
-    return Positioned.fill(
-      child: SafeArea(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                // Left button
-                _buildControlButton(
-                  icon: Icons.keyboard_arrow_left,
-                  onPressStart: () => game.moveLeft(),
-                  onPressEnd: () => game.stop(),
-                  label: 'Left',
-                ),
-                // Bounce button (immediate response)
-                _buildControlButton(
-                  icon: Icons.sports_volleyball,
-                  onPressed: () => game.bounce(), // Immediate bounce
-                  label: 'Bounce',
-                  color: Colors.orange,
-                ),
-                // Right button
-                _buildControlButton(
-                  icon: Icons.keyboard_arrow_right,
-                  onPressStart: () => game.moveRight(),
-                  onPressEnd: () => game.stop(),
-                  label: 'Right',
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
+/// Helper to rebuild UI when game state changes
+class _ScoreNotifier extends ValueNotifier<int> {
+  final BallGame game;
+
+  _ScoreNotifier(this.game) : super(0) {
+    _startListening();
   }
 
-  Widget _buildControlButton({
-    required IconData icon,
-    VoidCallback? onPressed,
-    VoidCallback? onPressStart,
-    VoidCallback? onPressEnd,
-    VoidCallback? onLongPress,
-    required String label,
-    Color? color,
-  }) {
-    return GestureDetector(
-      onTapDown: onPressStart != null ? (_) => onPressStart() : null,
-      onTapUp: onPressEnd != null ? (_) => onPressEnd() : null,
-      onTapCancel: onPressEnd,
-      onTap: onPressed,
-      onLongPress: onLongPress,
-      child: Container(
-        width: 70,
-        height: 70,
-        decoration: BoxDecoration(
-          color: (color ?? Colors.blue).withOpacity(0.8),
-          borderRadius: BorderRadius.circular(35),
-          border: Border.all(color: Colors.white, width: 2),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: Colors.white,
-              size: 30,
-            ),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  void _startListening() {
+    // Update every frame
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(milliseconds: 16));
+      if (value != game.score) {
+        value = game.score;
+      }
+      return true;
+    });
   }
 }
